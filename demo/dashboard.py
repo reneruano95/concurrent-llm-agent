@@ -57,7 +57,7 @@ def read_agent_metrics(agent_names: list[str]) -> dict[str, dict]:
         path = os.path.join(COMMS_DIR, f"metrics_{name}.json")
         if os.path.exists(path):
             try:
-                with open(path, "r") as f:
+                with open(path, "r", encoding="utf-8") as f:
                     metrics[name] = json.load(f)
             except (json.JSONDecodeError, IOError):
                 pass

@@ -88,7 +88,7 @@ def dispatch(tasks: list[dict], agents: list[dict], system_prompt: str = ""):
     for task in tasks:
         name = task["name"]
         path = os.path.join(COMMS_DIR, f"task_{name}.json")
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump({
                 "task_id": task_id,
                 "instruction": task["instruction"],
@@ -117,7 +117,7 @@ def collect(tasks: list[dict], agents: list[dict]) -> dict[str, str]:
             if os.path.exists(path):
                 time.sleep(0.1)
                 try:
-                    with open(path, "r") as f:
+                    with open(path, "r", encoding="utf-8") as f:
                         data = json.load(f)
                     os.remove(path)
                     results[name] = data.get("result", "")
@@ -146,7 +146,7 @@ def assemble(scenario: dict, topic: str, results: dict, tasks: list = None):
 
     os.makedirs(BUILD_DIR, exist_ok=True)
     path = os.path.join(BUILD_DIR, "index.html")
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(page_html)
 
     print(f"  {GREEN}✅ Assembled: index.html{RESET}")

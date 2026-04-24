@@ -25,7 +25,7 @@ def wait_for_task(name: str) -> dict:
         if os.path.exists(task_path):
             time.sleep(0.1)
             try:
-                with open(task_path, "r") as f:
+                with open(task_path, "r", encoding="utf-8") as f:
                     task = json.load(f)
                 os.remove(task_path)
                 return task
@@ -69,8 +69,8 @@ def main():
 
     # Write result
     result_path = os.path.join(COMMS_DIR, f"result_{name}.json")
-    with open(result_path, "w") as f:
-        json.dump({"task_id": task.get("task_id", ""), "result": result}, f)
+    with open(result_path, "w", encoding="utf-8") as f:
+        json.dump({"task_id": task.get("task_id", ""), "result": result}, f, ensure_ascii=False)
 
     print(f"\n\n\033[{color}m{'─' * 45}{RESET}")
     print(f"\033[{color}m  ✅ {args.emoji}  {display} — Done!{RESET}")
