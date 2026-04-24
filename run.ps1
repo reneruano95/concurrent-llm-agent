@@ -103,25 +103,82 @@ foreach ($a in $Agents) {
 $wt = Get-Command wt.exe -ErrorAction SilentlyContinue
 
 if ($wt) {
-    # wt.exe treats ';' as a tab separator. Escape any ';' inside a per-tab
+    # wt.exe treats ';' as a command separator. Escape any ';' inside a per-pane
     # command (ANSI color codes like '1;35', and the '; ' between our own
     # inner PowerShell statements) so wt passes them through literally.
     function Escape-WtArg([string]$s) { return $s -replace ';', '\;' }
 
+    # Format a fraction as an invariant-culture decimal so wt parses it
+    # regardless of the user's regional decimal separator.
+    function Fmt-Size([double]$v) {
+        return $v.ToString("0.####", [System.Globalization.CultureInfo]::InvariantCulture)
+    }
+
+    # ─── Compute grid layout (mirrors run.sh AppleScript layout) ───
+    # Top row: dashboard (full width, ~25% height).
+    # Below:  orchestrator + N agents tiled into a Cols x Rows grid.
+    $Total = $NumAgents + 1
+    $Cols  = [int][Math]::Ceiling([Math]::Sqrt([double]$Total))
+    $Rows  = [int][Math]::Ceiling($Total / [double]$Cols)
+    $DashFraction = 0.22  # fraction of window height used by the dashboard
+
+    # Flat list of grid cells in row-major order: orchestrator first, then agents.
+    $CellCmds   = @([PSCustomObject]@{ Title = "Orchestrator"; Cmd = $OrchCmd }) + $SpecCmds
+    $CellCount  = $CellCmds.Count
+
+    function Get-RowCellCount([int]$r) {
+        $start = $r * $Cols
+        $end   = [Math]::Min($start + $Cols, $CellCount)
+        return $end - $start
+    }
+    function Get-Cell([int]$r, [int]$c) {
+        return $CellCmds[$r * $Cols + $c]
+    }
+
     # Build the wt argv. Calling wt.exe directly (not Start-Process) lets
     # PowerShell quote each argument correctly, including titles with spaces.
     $wtArgs = @()
+
+    # 1) Dashboard tab (occupies full window initially).
     $wtArgs += @("new-tab", "--title", "Dashboard",
                  "powershell", "-NoExit", "-Command", (Escape-WtArg $DashCmd))
-    $wtArgs += @(";", "new-tab", "--title", "Orchestrator",
-                 "powershell", "-NoExit", "-Command", (Escape-WtArg $OrchCmd))
-    foreach ($s in $SpecCmds) {
-        $wtArgs += @(";", "new-tab", "--title", $s.Title,
-                     "powershell", "-NoExit", "-Command", (Escape-WtArg $s.Cmd))
+
+    # 2) Split horizontally so the dashboard keeps the top slice and the
+    #    orchestrator (cell 0,0) takes the bottom (1 - DashFraction).
+    $orch = Get-Cell 0 0
+    $wtArgs += @(";", "split-pane", "-H", "-s", (Fmt-Size (1.0 - $DashFraction)),
+                 "--title", $orch.Title,
+                 "powershell", "-NoExit", "-Command", (Escape-WtArg $orch.Cmd))
+
+    # 3) Build remaining rows by repeatedly horizontal-splitting the current
+    #    bottom pane. Each new pane is the leftmost cell of its row.
+    for ($i = 1; $i -lt $Rows; $i++) {
+        $size = ($Rows - $i) / [double]($Rows - $i + 1)
+        $cell = Get-Cell $i 0
+        $wtArgs += @(";", "split-pane", "-H", "-s", (Fmt-Size $size),
+                     "--title", $cell.Title,
+                     "powershell", "-NoExit", "-Command", (Escape-WtArg $cell.Cmd))
+    }
+
+    # 4) Focus is on the bottom row. Walk rows bottom→top, splitting each row
+    #    vertically into its remaining columns.
+    for ($r = $Rows - 1; $r -ge 0; $r--) {
+        $rc = Get-RowCellCount $r
+        for ($c = 1; $c -lt $rc; $c++) {
+            $size = ($rc - $c) / [double]($rc - $c + 1)
+            $cell = Get-Cell $r $c
+            $wtArgs += @(";", "split-pane", "-V", "-s", (Fmt-Size $size),
+                         "--title", $cell.Title,
+                         "powershell", "-NoExit", "-Command", (Escape-WtArg $cell.Cmd))
+        }
+        if ($r -gt 0) {
+            # Move up into the still-unsplit pane of the row above.
+            $wtArgs += @(";", "move-focus", "up")
+        }
     }
 
     & wt.exe @wtArgs
-    Write-Host "🚀 Launched in Windows Terminal: $Scenario ($NumAgents agents + dashboard + orchestrator)" -ForegroundColor Green
+    Write-Host "🚀 Launched in Windows Terminal: $Scenario ($NumAgents agents, ${Cols}x${Rows} grid + dashboard)" -ForegroundColor Green
 } else {
     # Fallback: separate PowerShell windows
     Start-Process powershell -ArgumentList "-NoExit", "-Command", $DashCmd
