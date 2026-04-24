@@ -45,7 +45,19 @@ def write_metrics(name: str, status: str, tokens: int, elapsed: float, tps: floa
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
         json.dump(metrics, f)
-    os.replace(tmp, path)
+    # On Windows, os.replace can fail with PermissionError if the target file
+    # is momentarily open by a reader (e.g. the dashboard). Retry briefly.
+    for attempt in range(10):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            time.sleep(0.05)
+    # Last resort: drop the tmp file silently — next tick will write again.
+    try:
+        os.remove(tmp)
+    except OSError:
+        pass
 
 
 # ─── LLM Streaming ─────────────────────────────────────────

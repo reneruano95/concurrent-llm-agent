@@ -87,8 +87,8 @@ function Make-Cmd([string]$inner) {
     return "chcp 65001 > `$null; `$env:PYTHONIOENCODING='utf-8'; cd `"$DemoDir`"; & `"$Python`" $inner"
 }
 
-$DashCmd = Make-Cmd "dashboard.py --server-url '$ServerUrl' --scenario '$Scenario' --topic `"$Topic`"$tasksFlag"
-$OrchCmd = Make-Cmd "orchestrator.py --scenario '$Scenario' --api-url '$ApiUrl' --topic `"$Topic`"$tasksFlag"
+$DashCmd = Make-Cmd "dashboard.py --server-url '$ServerUrl' --scenario '$Scenario' --topic '$Topic'$tasksFlag"
+$OrchCmd = Make-Cmd "orchestrator.py --scenario '$Scenario' --api-url '$ApiUrl' --topic '$Topic'$tasksFlag"
 
 $SpecCmds = @()
 foreach ($a in $Agents) {
@@ -103,15 +103,24 @@ foreach ($a in $Agents) {
 $wt = Get-Command wt.exe -ErrorAction SilentlyContinue
 
 if ($wt) {
-    # Build a single Windows Terminal command with multiple tabs.
-    # First window: dashboard tab; new-tab for orchestrator + each specialist.
-    $args = @()
-    $args += "new-tab", "--title", "⚡ Dashboard", "powershell", "-NoExit", "-Command", $DashCmd
-    $args += ";", "new-tab", "--title", "🧠 Orchestrator", "powershell", "-NoExit", "-Command", $OrchCmd
+    # wt.exe treats ';' as a tab separator. Escape any ';' inside a per-tab
+    # command (ANSI color codes like '1;35', and the '; ' between our own
+    # inner PowerShell statements) so wt passes them through literally.
+    function Escape-WtArg([string]$s) { return $s -replace ';', '\;' }
+
+    # Build the wt argv. Calling wt.exe directly (not Start-Process) lets
+    # PowerShell quote each argument correctly, including titles with spaces.
+    $wtArgs = @()
+    $wtArgs += @("new-tab", "--title", "Dashboard",
+                 "powershell", "-NoExit", "-Command", (Escape-WtArg $DashCmd))
+    $wtArgs += @(";", "new-tab", "--title", "Orchestrator",
+                 "powershell", "-NoExit", "-Command", (Escape-WtArg $OrchCmd))
     foreach ($s in $SpecCmds) {
-        $args += ";", "new-tab", "--title", $s.Title, "powershell", "-NoExit", "-Command", $s.Cmd
+        $wtArgs += @(";", "new-tab", "--title", $s.Title,
+                     "powershell", "-NoExit", "-Command", (Escape-WtArg $s.Cmd))
     }
-    Start-Process wt.exe -ArgumentList $args
+
+    & wt.exe @wtArgs
     Write-Host "🚀 Launched in Windows Terminal: $Scenario ($NumAgents agents + dashboard + orchestrator)" -ForegroundColor Green
 } else {
     # Fallback: separate PowerShell windows
