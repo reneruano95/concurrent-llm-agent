@@ -47,10 +47,20 @@ for a in s['agents']:
     print(f"{a['name']}|{a['emoji']}|{a['color']}")
 "@
 
-$AgentData = & $Python -c $pyCode 2>$null
-if (-not $AgentData) {
-    Write-Host "❌ Failed to load scenario '$Scenario'" -ForegroundColor Red
-    exit 1
+$tmpPy = [System.IO.Path]::GetTempFileName() + ".py"
+Set-Content -Path $tmpPy -Value $pyCode -Encoding UTF8
+try {
+    $prevPyIO = $env:PYTHONIOENCODING
+    $env:PYTHONIOENCODING = "utf-8"
+    $AgentData = & $Python $tmpPy 2>&1
+    $env:PYTHONIOENCODING = $prevPyIO
+    if ($LASTEXITCODE -ne 0 -or -not $AgentData) {
+        Write-Host "❌ Failed to load scenario '$Scenario'" -ForegroundColor Red
+        Write-Host $AgentData -ForegroundColor DarkGray
+        exit 1
+    }
+} finally {
+    Remove-Item $tmpPy -ErrorAction SilentlyContinue
 }
 
 $Agents = @()
@@ -73,7 +83,8 @@ if ($Tasks -gt 0) { $tasksFlag = " --tasks $Tasks" }
 # Each command cd's into demo/ and runs the script. After it finishes, keep window open.
 function Make-Cmd([string]$inner) {
     # -NoExit keeps the window open after script ends (in case orchestrator's input() is skipped)
-    return "cd `"$DemoDir`"; & `"$Python`" $inner"
+    # PYTHONIOENCODING=utf-8 + chcp 65001 ensure emojis don't crash stdout on Windows.
+    return "chcp 65001 > `$null; `$env:PYTHONIOENCODING='utf-8'; cd `"$DemoDir`"; & `"$Python`" $inner"
 }
 
 $DashCmd = Make-Cmd "dashboard.py --server-url '$ServerUrl' --scenario '$Scenario' --topic `"$Topic`"$tasksFlag"
