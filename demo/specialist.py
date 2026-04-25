@@ -65,7 +65,16 @@ def main():
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": instruction})
 
-    result = stream_llm(args.api_url, messages, agent_name=name, color=color)
+    # Specialists execute a single, well-defined instruction. Reasoning chains
+    # waste the token budget and frequently truncate before any content is
+    # emitted (see Qwen3, DeepSeek-R1). Disable thinking by default; the
+    # streamer will auto-retry with thinking off if a model ignores the flag.
+    result = stream_llm(
+        args.api_url, messages,
+        agent_name=name, color=color,
+        max_tokens=8000,
+        enable_thinking=False,
+    )
 
     # Write result
     result_path = os.path.join(COMMS_DIR, f"result_{name}.json")
