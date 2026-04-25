@@ -68,6 +68,7 @@ def stream_llm(
     agent_name: str,
     color: str = "1;37",
     max_tokens: int = 4000,
+    json_schema: dict | None = None,
 ) -> str:
     """Stream an LLM response, update metrics, and print tokens in color.
 
@@ -77,6 +78,9 @@ def stream_llm(
         agent_name: Name used for metrics files.
         color:      ANSI color code for terminal output.
         max_tokens: Maximum tokens to generate.
+        json_schema: Optional JSON Schema constraining the model's output.
+                     Tries response_format=json_schema (strict), falls back to
+                     json_object, then to unconstrained free text.
 
     Returns:
         The full response text (content only, excluding reasoning tokens).
@@ -89,6 +93,28 @@ def stream_llm(
     server_tokens = None  # Will be set from usage if available
     start_t = time.time()
 
+    # Build a list of response_format candidates to try, strongest first.
+    rf_candidates: list[dict | None] = []
+    if json_schema is not None:
+        rf_candidates.append({
+            "type": "json_schema",
+            "json_schema": {"name": "plan", "schema": json_schema, "strict": True},
+        })
+        rf_candidates.append({"type": "json_object"})
+    rf_candidates.append(None)  # always-available unconstrained fallback
+
+    def _create_stream(rf):
+        kwargs = {
+            "model": "default",
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        if rf is not None:
+            kwargs["response_format"] = rf
+        return client.chat.completions.create(**kwargs)
+
     try:
         write_metrics(agent_name, "running", 0, 0.0, 0.0)
 
@@ -96,13 +122,17 @@ def stream_llm(
         poll_interval = 0.3
         chunks_since_poll = 0
 
-        response = client.chat.completions.create(
-            model="default",
-            messages=messages,
-            max_tokens=max_tokens,
-            stream=True,
-            stream_options={"include_usage": True},
-        )
+        response = None
+        last_err = None
+        for rf in rf_candidates:
+            try:
+                response = _create_stream(rf)
+                break
+            except Exception as e:
+                last_err = e
+                continue
+        if response is None:
+            raise last_err if last_err else RuntimeError("LLM request failed")
 
         for chunk in response:
             # Final chunk with usage stats (no choices)
