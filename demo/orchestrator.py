@@ -28,6 +28,7 @@ from utils import (
     YELLOW,
     WHITE,
     stream_llm,
+    get_server_model,
 )
 from runlog import (
     new_run_dir,
@@ -59,7 +60,11 @@ def plan_tasks(
     )
 
     print(f"{DIM}Generating agent instructions...{RESET}\n")
-    plan_tokens = max(1024, len(agents) * 200)
+    # Reasoning models can spend thousands of tokens thinking before emitting
+    # the JSON array. Give the planner generous headroom so the closing ']'
+    # actually fits within max_tokens (otherwise finish_reason="length" and we
+    # fall back to generic instructions).
+    plan_tokens = max(4096, len(agents) * 400)
 
     messages = [
         {"role": "system", "content": plan["system"]},
@@ -268,6 +273,7 @@ def main():
             "n_agents": len(agents),
             "agents": [a["name"] for a in agents],
             "api_url": args.api_url,
+            "model": get_server_model(args.api_url),
             "total_elapsed_s": round(time.time() - run_started, 3),
             "tasks": tasks,
         },

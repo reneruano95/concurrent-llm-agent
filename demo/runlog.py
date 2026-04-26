@@ -66,6 +66,7 @@ def log_call(
     error: str | None = None,
     reasoning_tokens: int | None = None,
     reasoning_preview: str | None = None,
+    model: str | None = None,
 ) -> str | None:
     """Persist one LLM call. Returns the file path or None if disabled.
 
@@ -83,6 +84,7 @@ def log_call(
             "agent": agent,
             "attempt": n,
             "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "model": model,
             "request": request,
             "response_format": response_format,
             "finish_reason": finish_reason,

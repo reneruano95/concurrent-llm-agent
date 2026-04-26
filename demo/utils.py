@@ -14,6 +14,24 @@ from openai import OpenAI
 
 from runlog import log_call as _runlog_log_call
 
+
+def get_server_model(api_url: str) -> str | None:
+    """Ask the OpenAI-compatible server which model is loaded.
+
+    Returns the first model id from /v1/models, or None on any failure.
+    """
+    try:
+        base_url = api_url.rsplit("/chat/completions", 1)[0]
+        client = OpenAI(base_url=base_url, api_key="sk-no-key")
+        models = client.models.list()
+        for m in models.data:
+            mid = getattr(m, "id", None)
+            if mid:
+                return mid
+    except Exception:
+        return None
+    return None
+
 # ─── Shared Paths ───────────────────────────────────────────
 
 COMMS_DIR = os.path.join(os.path.dirname(__file__), ".agent_comms")
@@ -101,6 +119,7 @@ def stream_llm(
     chunk_count = 0
     server_tokens = None  # Will be set from usage if available
     server_reasoning_tokens: int | None = None
+    server_model: str | None = None  # Model id reported by the server (LM Studio etc.)
     finish_reason: str | None = None
     error_msg: str | None = None
     start_t = time.time()
@@ -121,6 +140,13 @@ def stream_llm(
         )
 
         for chunk in response:
+            # Capture the model id the server actually used (LM Studio reports
+            # the loaded model here, even when we send model="default").
+            if server_model is None:
+                m = getattr(chunk, "model", None)
+                if m:
+                    server_model = m
+
             # Final chunk with usage stats (no choices)
             if hasattr(chunk, "usage") and chunk.usage:
                 server_tokens = chunk.usage.completion_tokens
@@ -185,6 +211,7 @@ def stream_llm(
         error=error_msg,
         reasoning_tokens=server_reasoning_tokens,
         reasoning_preview=reasoning_full[:2000] if reasoning_full else None,
+        model=server_model,
     )
 
     return full
