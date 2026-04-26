@@ -177,6 +177,7 @@ def assemble(
     results: dict,
     tasks: list = None,
     run_dir: str | None = None,
+    model: str | None = None,
 ):
     """Build the final HTML page from all agent results."""
     print(f"{CYAN}{'━' * 60}{RESET}")
@@ -185,7 +186,7 @@ def assemble(
 
     from scenarios import build_page
 
-    page_html = build_page(topic, scenario, results, tasks=tasks)
+    page_html = build_page(topic, scenario, results, tasks=tasks, model=model)
 
     os.makedirs(BUILD_DIR, exist_ok=True)
     path = os.path.join(BUILD_DIR, "index.html")
@@ -260,10 +261,11 @@ def main():
     print(f"{DIM}  Run folder: {run_dir}{RESET}\n")
 
     run_started = time.time()
+    model = get_server_model(args.api_url)
     tasks = plan_tasks(args.api_url, scenario, args.topic, run_dir=run_dir)
     dispatch(tasks, agents, system_prompt=scenario.get("system_prompt", ""))
     results = collect(tasks, agents)
-    assemble(scenario, args.topic, results, tasks=tasks, run_dir=run_dir)
+    assemble(scenario, args.topic, results, tasks=tasks, run_dir=run_dir, model=model)
 
     write_run_meta(
         run_dir,
@@ -273,7 +275,7 @@ def main():
             "n_agents": len(agents),
             "agents": [a["name"] for a in agents],
             "api_url": args.api_url,
-            "model": get_server_model(args.api_url),
+            "model": model,
             "total_elapsed_s": round(time.time() - run_started, 3),
             "tasks": tasks,
         },
