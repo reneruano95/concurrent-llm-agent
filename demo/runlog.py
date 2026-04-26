@@ -65,6 +65,9 @@ def log_call(
     enable_thinking: bool,
     response_format: dict | None = None,
     error: str | None = None,
+    reasoning_tokens: int | None = None,
+    reasoning_preview: str | None = None,
+    leaked_thinking: bool = False,
 ) -> str | None:
     """Persist one LLM call. Returns the file path or None if disabled.
 
@@ -85,11 +88,14 @@ def log_call(
             "request": request,
             "response_format": response_format,
             "enable_thinking": enable_thinking,
+            "leaked_thinking": leaked_thinking,
             "finish_reason": finish_reason,
             "tokens": tokens,
+            "reasoning_tokens": reasoning_tokens,
             "elapsed_s": round(elapsed_s, 3),
             "tps": round(tokens / elapsed_s, 1) if elapsed_s > 0 else 0.0,
             "response": response,
+            "reasoning_preview": reasoning_preview,
             "error": error,
         }
         tmp = path + ".tmp"

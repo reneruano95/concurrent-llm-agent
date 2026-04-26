@@ -144,8 +144,10 @@ def stream_llm(
         return client.chat.completions.create(**kwargs)
 
     full = ""
+    reasoning_full = ""
     chunk_count = 0
     server_tokens = None  # Will be set from usage if available
+    server_reasoning_tokens: int | None = None
     finish_reason: str | None = None
     error_msg: str | None = None
     start_t = time.time()
@@ -173,6 +175,12 @@ def stream_llm(
             # Final chunk with usage stats (no choices)
             if hasattr(chunk, "usage") and chunk.usage:
                 server_tokens = chunk.usage.completion_tokens
+                # Some servers (LM Studio, vLLM w/ reasoning) split out
+                # reasoning tokens. Capture them so we can prove whether
+                # /no_think was honored.
+                details = getattr(chunk.usage, "completion_tokens_details", None)
+                if details is not None:
+                    server_reasoning_tokens = getattr(details, "reasoning_tokens", None)
                 continue
 
             if not chunk.choices:
@@ -185,6 +193,7 @@ def stream_llm(
             # Handle reasoning tokens (thinking models)
             rc = getattr(delta, "reasoning_content", None)
             if rc:
+                reasoning_full += rc
                 sys.stdout.write(f"\033[2;37m{rc}\033[0m")
                 sys.stdout.flush()
 
@@ -216,6 +225,28 @@ def stream_llm(
     final_tps = final_tokens / total_elapsed if total_elapsed > 0 else 0.0
     write_metrics(agent_name, "done", final_tokens, total_elapsed, final_tps)
 
+    # Final defense: strip any inline <think>...</think> blocks the model
+    # may have emitted as content (some servers don't separate reasoning).
+    if "<think>" in full:
+        import re as _re
+        leaked = _re.findall(r"<think>.*?(?:</think>|$)", full, flags=_re.DOTALL)
+        if leaked:
+            reasoning_full += "\n".join(leaked)
+        full = _re.sub(r"<think>.*?</think>\s*", "", full, flags=_re.DOTALL)
+        full = _re.sub(r"<think>.*$", "", full, flags=_re.DOTALL).strip()
+
+    # Warn if the model ignored /no_think and reasoned anyway.
+    leaked_thinking = bool(
+        not enable_thinking
+        and (reasoning_full or (server_reasoning_tokens or 0) > 0)
+    )
+    if leaked_thinking:
+        sys.stdout.write(
+            f"\n\033[33m[{agent_name}] \u26a0\ufe0f  model emitted reasoning despite "
+            f"enable_thinking=False (reasoning_tokens={server_reasoning_tokens}, "
+            f"reasoning_chars={len(reasoning_full)})\033[0m\n"
+        )
+
     # Persist this call to the run log (if a run_dir was provided).
     _runlog_log_call(
         run_dir,
@@ -228,6 +259,9 @@ def stream_llm(
         enable_thinking=enable_thinking,
         response_format=({"type": "json_schema"} if json_schema else None),
         error=error_msg,
+        reasoning_tokens=server_reasoning_tokens,
+        reasoning_preview=reasoning_full[:2000] if reasoning_full else None,
+        leaked_thinking=leaked_thinking,
     )
 
     # Auto-recover from "model thought itself out of budget": truncated by
