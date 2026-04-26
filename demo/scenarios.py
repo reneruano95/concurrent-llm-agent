@@ -248,64 +248,55 @@ ASCII_SYSTEM = (
 
 
 # ─── Planning Prompts ───────────────────────────────────────
-#
-# Two planning strategies are supported:
-#
-#   "direct"     → No LLM call. Each agent's `direct_instruction` is templated
-#                  with {topic} and used as-is. Used when the per-agent
-#                  specialization is fully deterministic (translate, code).
-#
-#   "decompose"  → The LLM produces ONLY a JSON array of N "subject" strings
-#                  (small surface, schema-constrained). Python then zips the
-#                  subjects with the agents and templates the final instruction
-#                  via `instruction_template`. Used when creative variation per
-#                  card is needed (svg, ascii).
-#
-# Each `decompose` block has: system, user, schema_item (JSON schema for one
-# array item). `n_agents` is substituted by `get_scenario`.
 
-SVG_DECOMPOSE = {
+TRANSLATE_PLAN = {
     "system": (
-        "You are a creative planner. Output ONLY a JSON array of exactly "
-        "{n_agents} short subject strings (2-4 words each). No prose, no keys, "
-        "no markdown — just a JSON array of strings."
+        'Output a JSON array with {n_agents} objects. Each has "name" and "instruction". '
+        "Keep each instruction to ONE sentence. Output ONLY valid JSON."
     ),
     "user": (
-        'Theme: "{topic}". List {n_agents} different specific things to draw '
-        "related to this theme. Each entry is a short noun phrase (e.g. "
-        '"a red robot", "a city skyline"). Vary them — no duplicates.'
+        'Translate this into {n_agents} languages: "{topic}"\n'
+        "Agents: {agent_list}\n"
+        'Each instruction: "Translate into [language]: [text]". That is all.'
     ),
-    "schema_item": {"type": "string", "minLength": 2, "maxLength": 80},
 }
 
-ASCII_DECOMPOSE = {
+SVG_PLAN = {
     "system": (
-        "You are a creative planner. Output ONLY a JSON array of exactly "
-        "{n_agents} short subject strings (1-3 words each). No prose, no keys, "
-        "no markdown — just a JSON array of strings."
+        'Output a JSON array with {n_agents} objects. Each has "name", "instruction", and "label". '
+        'The "label" is a short 2-4 word title for the SVG (e.g. "A Cat"). '
+        "Output ONLY valid JSON."
     ),
     "user": (
-        'Theme: "{topic}". List {n_agents} different specific subjects suitable '
-        "for small ASCII art (max 20x60 chars). Each entry is one short noun "
-        '(e.g. "Cat", "Spaceship", "Tree"). Vary them — no duplicates.'
+        'Theme: "{topic}". Agents: {agent_list}\n'
+        'Each instruction: "Draw a simple SVG of [specific thing].". '
+        "One sentence max. Do NOT mention size or format."
     ),
-    "schema_item": {"type": "string", "minLength": 1, "maxLength": 40},
 }
 
-# Templates use Python str.format with these names available:
-#   {topic}     — the user's topic string
-#   {subject}   — the per-card subject from the planner
-#   plus any field on the agent dict (name, emoji, color, style, …)
+CODE_PLAN = {
+    "system": (
+        'Output a JSON array with {n_agents} objects. Each has "name" and "instruction". '
+        "Keep each instruction to ONE sentence. Output ONLY valid JSON."
+    ),
+    "user": (
+        'Task: "{topic}". Agents (each is a programming language): {agent_list}\n'
+        'Each instruction: "Write [specific solution] in [language]". One sentence. That is all.'
+    ),
+}
 
-SVG_TEMPLATE = (
-    "Draw a simple SVG of {subject}. Use a {style} style. "
-    "Output SVG only and start with <svg"
-)
-
-ASCII_TEMPLATE = (
-    "Create realistic and small ASCII art (max 20x60 characters) of {subject}. "
-    "Output ASCII art only."
-)
+ASCII_PLAN = {
+    "system": (
+        'Output a JSON array with {n_agents} objects. Each has "name", "instruction", and "label". '
+        'The "label" is a one word description of the ASCII art (e.g. "Cat"). '
+        "Output ONLY valid JSON."
+    ),
+    "user": (
+        'Theme: "{topic}". Agents (each is an ASCII artist): {agent_list}\n'
+        'Each instruction: "Create realistic and small ASCII (max 20x60 characters) art of [specific aspect of the theme - one word description only]". '
+        "One sentence. That is all. "
+    ),
+}
 
 
 # ─── Card Renderers ─────────────────────────────────────────
@@ -454,7 +445,7 @@ def build_page(topic, scenario, results, tasks=None):
 SCENARIOS = {
     "translate": {
         "make_agents": make_translate_agents,
-        "planning_strategy": "direct",
+        "plan": TRANSLATE_PLAN,
         "system_prompt": TRANSLATE_SYSTEM,
         "render_card": translate_card,
         "title": "Translation Grid",
@@ -462,9 +453,7 @@ SCENARIOS = {
     },
     "svg": {
         "make_agents": make_svg_agents,
-        "planning_strategy": "decompose",
-        "decompose": SVG_DECOMPOSE,
-        "instruction_template": SVG_TEMPLATE,
+        "plan": SVG_PLAN,
         "system_prompt": SVG_SYSTEM,
         "render_card": svg_card,
         "title": "SVG Art Gallery",
@@ -472,7 +461,7 @@ SCENARIOS = {
     },
     "code": {
         "make_agents": make_code_agents,
-        "planning_strategy": "direct",
+        "plan": CODE_PLAN,
         "system_prompt": CODE_SYSTEM,
         "render_card": code_card,
         "title": "Code Gallery",
@@ -485,9 +474,7 @@ SCENARIOS = {
     },
     "ascii": {
         "make_agents": make_ascii_agents,
-        "planning_strategy": "decompose",
-        "decompose": ASCII_DECOMPOSE,
-        "instruction_template": ASCII_TEMPLATE,
+        "plan": ASCII_PLAN,
         "system_prompt": ASCII_SYSTEM,
         "render_card": ascii_card,
         "title": "ASCII Art Gallery",
@@ -497,11 +484,7 @@ SCENARIOS = {
 
 
 def get_scenario(name: str, n_agents: int = None) -> dict:
-    """Get a scenario by name. Generates agents dynamically.
-
-    Resolves {n_agents} placeholders inside the `decompose` block and builds
-    a JSON schema constraining the planner's output to an array of length N.
-    """
+    """Get a scenario by name. Generates agents dynamically."""
     if name not in SCENARIOS:
         available = ", ".join(SCENARIOS.keys())
         raise KeyError(f"Unknown scenario '{name}'. Available: {available}")
@@ -509,16 +492,8 @@ def get_scenario(name: str, n_agents: int = None) -> dict:
     n = n_agents or scenario["default_n"]
     scenario["agents"] = scenario["make_agents"](n)
     scenario["n_agents"] = n
-
-    if "decompose" in scenario:
-        d = dict(scenario["decompose"])
-        d["system"] = d["system"].replace("{n_agents}", str(n))
-        d["user"] = d["user"].replace("{n_agents}", str(n))
-        d["schema"] = {
-            "type": "array",
-            "minItems": n,
-            "maxItems": n,
-            "items": d.get("schema_item", {"type": "string"}),
-        }
-        scenario["decompose"] = d
+    scenario["plan"] = {
+        k: v.replace("{n_agents}", str(n)) if isinstance(v, str) else v
+        for k, v in scenario["plan"].items()
+    }
     return scenario

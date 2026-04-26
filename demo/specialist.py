@@ -75,10 +75,8 @@ def main():
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": instruction})
 
-    # Specialists execute a single, well-defined instruction. Reasoning chains
-    # waste the token budget and frequently truncate before any content is
-    # emitted (see Qwen3, DeepSeek-R1). Disable thinking by default; the
-    # streamer will auto-retry with thinking off if a model ignores the flag.
+    # Specialists execute a single, well-defined instruction. Any reasoning
+    # the model chooses to do is recorded in the run log for observability.
     # Resolve run_dir: explicit flag > env var > sentinel file written by orchestrator.
     run_dir = args.run_dir or read_sentinel(COMMS_DIR)
 
@@ -88,7 +86,6 @@ def main():
         agent_name=name,
         color=color,
         max_tokens=8000,
-        enable_thinking=False,
         run_dir=run_dir,
     )
 

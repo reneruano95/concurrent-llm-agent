@@ -62,12 +62,10 @@ def log_call(
     tokens: int,
     elapsed_s: float,
     finish_reason: str | None,
-    enable_thinking: bool,
     response_format: dict | None = None,
     error: str | None = None,
     reasoning_tokens: int | None = None,
     reasoning_preview: str | None = None,
-    leaked_thinking: bool = False,
 ) -> str | None:
     """Persist one LLM call. Returns the file path or None if disabled.
 
@@ -87,8 +85,6 @@ def log_call(
             "timestamp": datetime.now().isoformat(timespec="seconds"),
             "request": request,
             "response_format": response_format,
-            "enable_thinking": enable_thinking,
-            "leaked_thinking": leaked_thinking,
             "finish_reason": finish_reason,
             "tokens": tokens,
             "reasoning_tokens": reasoning_tokens,

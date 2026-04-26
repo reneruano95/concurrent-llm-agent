@@ -74,8 +74,6 @@ def stream_llm(
     agent_name: str,
     color: str = "1;37",
     max_tokens: int = 8000,
-    json_schema: dict | None = None,
-    enable_thinking: bool = True,
     run_dir: str | None = None,
 ) -> str:
     """Stream an LLM response, update metrics, and print tokens in color.
@@ -86,62 +84,17 @@ def stream_llm(
         agent_name: Name used for metrics files.
         color:      ANSI color code for terminal output.
         max_tokens: Maximum tokens to generate.
-        json_schema: Optional JSON Schema constraining the model's output.
-                     Tries response_format=json_schema (strict), falls back to
-                     json_object, then to unconstrained free text.
-        enable_thinking: If False, ask reasoning models (Qwen3, DeepSeek-R1, …)
-                     to skip their <think> chain. Done via chat_template_kwargs
-                     when supported, plus a `/no_think` suffix as a fallback
-                     hint for Qwen3-family models.
+        run_dir:    Optional run folder for persisting per-call records.
 
     Returns:
-        The full response text (content only, excluding reasoning tokens).
-        If the response is truncated (finish_reason='length') with no content,
-        automatically retries once with thinking disabled.
+        The full response text (content only). Reasoning tokens are streamed
+        dimly to the terminal and recorded in the run log, but excluded from
+        the returned string.
     """
     base_url = api_url.rsplit("/chat/completions", 1)[0]
     client = OpenAI(base_url=base_url, api_key="sk-no-key")
 
-    # If thinking is disabled, append a hint to the last user message for
-    # models that don't honor chat_template_kwargs (e.g. Qwen3 GGUFs).
     effective_messages = messages
-    if not enable_thinking:
-        effective_messages = [dict(m) for m in messages]
-        for m in reversed(effective_messages):
-            if m.get("role") == "user":
-                if "/no_think" not in m.get("content", ""):
-                    m["content"] = m["content"].rstrip() + " /no_think"
-                break
-
-    # Build a list of response_format candidates to try, strongest first.
-    rf_candidates: list[dict | None] = []
-    if json_schema is not None:
-        rf_candidates.append(
-            {
-                "type": "json_schema",
-                "json_schema": {"name": "plan", "schema": json_schema, "strict": True},
-            }
-        )
-        rf_candidates.append({"type": "json_object"})
-    rf_candidates.append(None)  # always-available unconstrained fallback
-
-    def _create_stream(rf):
-        kwargs = {
-            "model": "default",
-            "messages": effective_messages,
-            "max_tokens": max_tokens,
-            "stream": True,
-            "stream_options": {"include_usage": True},
-        }
-        if rf is not None:
-            kwargs["response_format"] = rf
-        # Pass thinking toggle via extra_body for servers that support it
-        # (vLLM, llama.cpp w/ Qwen3, LM Studio with reasoning models).
-        if not enable_thinking:
-            kwargs["extra_body"] = {
-                "chat_template_kwargs": {"enable_thinking": False},
-            }
-        return client.chat.completions.create(**kwargs)
 
     full = ""
     reasoning_full = ""
@@ -159,25 +112,20 @@ def stream_llm(
         poll_interval = 0.3
         chunks_since_poll = 0
 
-        response = None
-        last_err = None
-        for rf in rf_candidates:
-            try:
-                response = _create_stream(rf)
-                break
-            except Exception as e:
-                last_err = e
-                continue
-        if response is None:
-            raise last_err if last_err else RuntimeError("LLM request failed")
+        response = client.chat.completions.create(
+            model="default",
+            messages=effective_messages,
+            max_tokens=max_tokens,
+            stream=True,
+            stream_options={"include_usage": True},
+        )
 
         for chunk in response:
             # Final chunk with usage stats (no choices)
             if hasattr(chunk, "usage") and chunk.usage:
                 server_tokens = chunk.usage.completion_tokens
                 # Some servers (LM Studio, vLLM w/ reasoning) split out
-                # reasoning tokens. Capture them so we can prove whether
-                # /no_think was honored.
+                # reasoning tokens. Capture them for observability.
                 details = getattr(chunk.usage, "completion_tokens_details", None)
                 if details is not None:
                     server_reasoning_tokens = getattr(details, "reasoning_tokens", None)
@@ -225,28 +173,6 @@ def stream_llm(
     final_tps = final_tokens / total_elapsed if total_elapsed > 0 else 0.0
     write_metrics(agent_name, "done", final_tokens, total_elapsed, final_tps)
 
-    # Final defense: strip any inline <think>...</think> blocks the model
-    # may have emitted as content (some servers don't separate reasoning).
-    if "<think>" in full:
-        import re as _re
-        leaked = _re.findall(r"<think>.*?(?:</think>|$)", full, flags=_re.DOTALL)
-        if leaked:
-            reasoning_full += "\n".join(leaked)
-        full = _re.sub(r"<think>.*?</think>\s*", "", full, flags=_re.DOTALL)
-        full = _re.sub(r"<think>.*$", "", full, flags=_re.DOTALL).strip()
-
-    # Warn if the model ignored /no_think and reasoned anyway.
-    leaked_thinking = bool(
-        not enable_thinking
-        and (reasoning_full or (server_reasoning_tokens or 0) > 0)
-    )
-    if leaked_thinking:
-        sys.stdout.write(
-            f"\n\033[33m[{agent_name}] \u26a0\ufe0f  model emitted reasoning despite "
-            f"enable_thinking=False (reasoning_tokens={server_reasoning_tokens}, "
-            f"reasoning_chars={len(reasoning_full)})\033[0m\n"
-        )
-
     # Persist this call to the run log (if a run_dir was provided).
     _runlog_log_call(
         run_dir,
@@ -256,30 +182,9 @@ def stream_llm(
         tokens=final_tokens,
         elapsed_s=total_elapsed,
         finish_reason=finish_reason,
-        enable_thinking=enable_thinking,
-        response_format=({"type": "json_schema"} if json_schema else None),
         error=error_msg,
         reasoning_tokens=server_reasoning_tokens,
         reasoning_preview=reasoning_full[:2000] if reasoning_full else None,
-        leaked_thinking=leaked_thinking,
     )
-
-    # Auto-recover from "model thought itself out of budget": truncated by
-    # length with no content emitted. Retry once with thinking disabled.
-    if enable_thinking and finish_reason == "length" and len(full.strip()) < 10:
-        sys.stdout.write(
-            f"\n\033[33m[{agent_name}] Output truncated by reasoning. "
-            f"Retrying with thinking disabled...\033[0m\n"
-        )
-        return stream_llm(
-            api_url=api_url,
-            messages=messages,
-            agent_name=agent_name,
-            color=color,
-            max_tokens=max_tokens,
-            json_schema=json_schema,
-            enable_thinking=False,
-            run_dir=run_dir,
-        )
 
     return full

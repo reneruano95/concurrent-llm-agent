@@ -42,169 +42,62 @@ POLL_INTERVAL = 0.5
 # ─── Step 1: Plan ───────────────────────────────────────────
 
 
-def _direct_tasks(agents: list[dict], topic: str) -> list[dict]:
-    """Strategy 'direct': use each agent's own direct_instruction. No LLM call."""
-    tasks = []
-    for a in agents:
-        instr_tpl = a.get("direct_instruction", "Work on: {topic}")
-        try:
-            instr = instr_tpl.format(topic=topic, **a)
-        except (KeyError, IndexError):
-            instr = instr_tpl.replace("{topic}", topic)
-        tasks.append({"name": a["name"], "instruction": instr})
-    return tasks
-
-
-def _extract_json_array(raw: str) -> str:
-    """Strip <think> blocks and markdown fences, return text from first '[' to last ']'."""
-    # Drop <think>...</think> reasoning
-    while "<think>" in raw and "</think>" in raw:
-        s = raw.index("<think>")
-        e = raw.index("</think>") + len("</think>")
-        raw = raw[:s] + raw[e:]
-    raw = raw.strip()
-    # Strip markdown code fences
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-        if raw.rstrip().endswith("```"):
-            raw = raw.rstrip()[:-3]
-    s = raw.find("[")
-    e = raw.rfind("]")
-    if s != -1 and e != -1 and e > s:
-        return raw[s : e + 1]
-    return raw
-
-
-def _validate_subjects(parsed, n: int) -> str | None:
-    """Return None if valid, else an error description for repair."""
-    if not isinstance(parsed, list):
-        return f"Expected a JSON array, got {type(parsed).__name__}."
-    if len(parsed) != n:
-        return f"Expected exactly {n} items, got {len(parsed)}."
-    for i, x in enumerate(parsed):
-        if not isinstance(x, str) or not x.strip():
-            return f"Item {i} is not a non-empty string."
-    if len({s.strip().lower() for s in parsed}) < n:
-        return "Duplicate subjects detected — each must be unique."
-    return None
-
-
-def _decompose_tasks(
-    api_url: str, scenario: dict, topic: str, run_dir: str | None = None
-) -> list[dict]:
-    """Strategy 'decompose': LLM produces N subjects; Python templates the instruction."""
-    agents = scenario["agents"]
-    n = len(agents)
-    decomp = scenario["decompose"]
-    template = scenario["instruction_template"]
-
-    user_prompt = decomp["user"].replace("{topic}", topic)
-    messages = [
-        {"role": "system", "content": decomp["system"]},
-        {"role": "user", "content": user_prompt},
-    ]
-    plan_tokens = max(512, n * 60)
-
-    subjects: list[str] | None = None
-    last_error: str | None = None
-
-    for attempt in range(2):  # initial + one repair
-        raw = stream_llm(
-            api_url,
-            messages,
-            agent_name="planner",
-            color="1;36",
-            max_tokens=plan_tokens,
-            json_schema=decomp["schema"],
-            run_dir=run_dir,
-        )
-        print("\n")
-        try:
-            parsed = json.loads(_extract_json_array(raw))
-        except json.JSONDecodeError as e:
-            last_error = f"Output was not valid JSON: {e.msg}"
-            parsed = None
-
-        if parsed is not None:
-            err = _validate_subjects(parsed, n)
-            if err is None:
-                subjects = parsed
-                break
-            last_error = err
-
-        # Repair: tell the model what was wrong and ask again.
-        print(f"{YELLOW}⚠️  Plan invalid ({last_error}) — repairing...{RESET}\n")
-        messages = [
-            {"role": "system", "content": decomp["system"]},
-            {"role": "user", "content": user_prompt},
-            {"role": "assistant", "content": raw},
-            {
-                "role": "user",
-                "content": (
-                    f"Your previous output was invalid: {last_error} "
-                    f"Output ONLY a JSON array of exactly {n} unique subject strings. "
-                    "Nothing else."
-                ),
-            },
-        ]
-
-    if subjects is None:
-        print(
-            f"{YELLOW}⚠️  Planner failed twice — falling back to direct_instruction.{RESET}\n"
-        )
-        return _direct_tasks(agents, topic)
-
-    # Bind subjects to agents and template the final instruction.
-    tasks = []
-    for agent, subject in zip(agents, subjects):
-        try:
-            instr = template.format(topic=topic, subject=subject, **agent)
-        except (KeyError, IndexError):
-            instr = template.replace("{topic}", topic).replace("{subject}", subject)
-        tasks.append(
-            {
-                "name": agent["name"],
-                "instruction": instr,
-                "label": subject,
-            }
-        )
-    return tasks
-
-
 def plan_tasks(
     api_url: str, scenario: dict, topic: str, run_dir: str | None = None
 ) -> list[dict]:
-    """Dispatch to the right planning strategy for this scenario."""
+    """Use the LLM to generate specific instructions per agent."""
+    agents = scenario["agents"]
+    plan = scenario["plan"]
+
     print(f"\n{CYAN}{'━' * 60}{RESET}")
     print(f"{CYAN}  🧠 STEP 1: PLANNING{RESET}")
     print(f"{CYAN}{'━' * 60}{RESET}\n")
 
-    strategy = scenario.get("planning_strategy", "direct")
-    agents = scenario["agents"]
+    agent_list = ", ".join(a["name"] for a in agents)
+    user_prompt = (
+        plan["user"].replace("{topic}", topic).replace("{agent_list}", agent_list)
+    )
 
-    if strategy == "direct":
-        print(f"{DIM}Strategy: direct (no LLM planning needed){RESET}\n")
-        tasks = _direct_tasks(agents, topic)
-    elif strategy == "decompose":
-        print(
-            f"{DIM}Strategy: decompose (LLM → subjects, Python → instructions){RESET}\n"
-        )
-        tasks = _decompose_tasks(api_url, scenario, topic, run_dir=run_dir)
+    print(f"{DIM}Generating agent instructions...{RESET}\n")
+    plan_tokens = max(1024, len(agents) * 200)
+
+    messages = [
+        {"role": "system", "content": plan["system"]},
+        {"role": "user", "content": user_prompt},
+    ]
+    raw = stream_llm(
+        api_url,
+        messages,
+        agent_name="orchestrator",
+        color="1;36",
+        max_tokens=plan_tokens,
+        run_dir=run_dir,
+    )
+    print("\n")
+
+    # Extract JSON array (skip any reasoning preamble)
+    start_idx = raw.find("[")
+    end_idx = raw.rfind("]")
+
+    if start_idx != -1 and end_idx != -1:
+        json_str = raw[start_idx : end_idx + 1]
     else:
-        print(
-            f"{YELLOW}⚠️  Unknown strategy '{strategy}' — falling back to direct.{RESET}\n"
-        )
-        tasks = _direct_tasks(agents, topic)
+        json_str = raw
 
-    print(f"{GREEN}✅ Plan: {len(tasks)} tasks{RESET}\n")
-    for t in tasks:
-        name = t.get("name", "?")
-        agent = next((a for a in agents if a["name"] == name), None)
-        emoji = agent["emoji"] if agent else "❓"
-        instr = t.get("instruction", "")[:60]
-        print(f"  {emoji}  {BOLD}{name}{RESET} {DIM}{instr}...{RESET}")
-    print()
-    return tasks
+    try:
+        tasks = json.loads(json_str)
+        print(f"{GREEN}✅ Plan: {len(tasks)} tasks{RESET}\n")
+        for t in tasks:
+            name = t.get("name", "?")
+            agent = next((a for a in agents if a["name"] == name), None)
+            emoji = agent["emoji"] if agent else "❓"
+            instr = t.get("instruction", "")[:50]
+            print(f"  {emoji}  {BOLD}{name}{RESET} {DIM}{instr}...{RESET}")
+        print()
+        return tasks
+    except json.JSONDecodeError:
+        print(f"{YELLOW}⚠️  Parse failed — using fallback{RESET}\n")
+        return [{"name": a["name"], "instruction": f"Work on: {topic}"} for a in agents]
 
 
 # ─── Step 2: Dispatch ───────────────────────────────────────
@@ -374,7 +267,6 @@ def main():
             "topic": args.topic,
             "n_agents": len(agents),
             "agents": [a["name"] for a in agents],
-            "planning_strategy": scenario.get("planning_strategy", "direct"),
             "api_url": args.api_url,
             "total_elapsed_s": round(time.time() - run_started, 3),
             "tasks": tasks,
