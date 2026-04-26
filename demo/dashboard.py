@@ -35,18 +35,27 @@ POLL_INTERVAL = 0.3
 
 # ANSI color code → Rich color mapping
 ANSI_TO_RICH = {
-    "1;31": "bold red",    "1;32": "bold green",  "1;33": "bold yellow",
-    "1;34": "bold blue",   "1;35": "bold magenta", "1;36": "bold cyan",
+    "1;31": "bold red",
+    "1;32": "bold green",
+    "1;33": "bold yellow",
+    "1;34": "bold blue",
+    "1;35": "bold magenta",
+    "1;36": "bold cyan",
     "1;37": "bold white",
-    "0;31": "red",   "0;32": "green",  "0;33": "yellow",
-    "0;34": "blue",  "0;35": "magenta", "0;36": "cyan", "0;37": "white",
+    "0;31": "red",
+    "0;32": "green",
+    "0;33": "yellow",
+    "0;34": "blue",
+    "0;35": "magenta",
+    "0;36": "cyan",
+    "0;37": "white",
 }
 
 STATUS_STYLE = {
     "waiting": ("⏳", "dim"),
     "running": ("⚡", "bold green"),
-    "done":    ("✅", "bold"),
-    "error":   ("❌", "bold red"),
+    "done": ("✅", "bold"),
+    "error": ("❌", "bold red"),
 }
 
 
@@ -95,6 +104,7 @@ def fetch_server_metrics(server_url: str) -> dict:
 
 # ─── Hero Panel (big t/s number) ───────────────────────────
 
+
 def build_hero(metrics: dict[str, dict], server_metrics: dict = None) -> Panel:
     """Build the large hero panel with the total t/s prominently displayed.
 
@@ -114,8 +124,6 @@ def build_hero(metrics: dict[str, dict], server_metrics: dict = None) -> Panel:
             done += 1
         total_tokens += m.get("tokens", 0)
 
-
-
     # Large ASCII art number
     big_art = render_big_number(f"{sum_tps:.1f}")
     big_text = Text(big_art, style="bold bright_yellow", justify="left")
@@ -134,8 +142,7 @@ def build_hero(metrics: dict[str, dict], server_metrics: dict = None) -> Panel:
     status_line = Text.from_markup("   ".join(status_parts), justify="center")
 
     tokens_line = Text.from_markup(
-        f"[bright_white]Total tokens: [bold]{total_tokens}[/][/]",
-        justify="center"
+        f"[bright_white]Total tokens: [bold]{total_tokens}[/][/]", justify="center"
     )
 
     content = Group(
@@ -159,6 +166,7 @@ def build_hero(metrics: dict[str, dict], server_metrics: dict = None) -> Panel:
 
 
 # ─── Orchestrator Panel ────────────────────────────────────
+
 
 def build_orchestrator_panel(metrics: dict[str, dict]) -> Panel:
     """Build a compact orchestrator status panel."""
@@ -192,6 +200,7 @@ def build_orchestrator_panel(metrics: dict[str, dict]) -> Panel:
 
 # ─── Agent Grid ────────────────────────────────────────────
 
+
 def build_agent_card(agent: dict, metrics: dict[str, dict]) -> Text:
     """Build a single compact agent card as a Text renderable."""
     name = agent["name"]
@@ -221,7 +230,9 @@ def build_agent_card(agent: dict, metrics: dict[str, dict]) -> Text:
     )
 
 
-def build_agent_grid(agents: list[dict], metrics: dict[str, dict], n_cols: int = 3) -> Panel:
+def build_agent_grid(
+    agents: list[dict], metrics: dict[str, dict], n_cols: int = 3
+) -> Panel:
     """Build a compact grid of agent mini-cards."""
     sub_agents = [a for a in agents if a["name"] != "orchestrator"]
 
@@ -233,7 +244,9 @@ def build_agent_grid(agents: list[dict], metrics: dict[str, dict], n_cols: int =
             expand=True,
         )
 
-    table = Table(box=None, show_header=False, show_edge=False, padding=(0, 1), expand=True)
+    table = Table(
+        box=None, show_header=False, show_edge=False, padding=(0, 1), expand=True
+    )
     for _ in range(n_cols):
         table.add_column(ratio=1)
 
@@ -274,7 +287,10 @@ def build_agent_grid(agents: list[dict], metrics: dict[str, dict], n_cols: int =
 
 # ─── Combined Layout ──────────────────────────────────────
 
-def build_dashboard(agents: list[dict], metrics: dict[str, dict], server_metrics: dict = None) -> Layout:
+
+def build_dashboard(
+    agents: list[dict], metrics: dict[str, dict], server_metrics: dict = None
+) -> Layout:
     """Assemble the full dashboard layout.
 
     ┌──────────────┬──────────────────┐
@@ -300,8 +316,9 @@ def build_dashboard(agents: list[dict], metrics: dict[str, dict], server_metrics
 
 def main():
     parser = argparse.ArgumentParser(description="Real-time throughput dashboard")
-    parser.add_argument("--server-url", default="http://127.0.0.1:8080",
-                        help="llama-server base URL")
+    parser.add_argument(
+        "--server-url", default="http://127.0.0.1:8080", help="llama-server base URL"
+    )
     parser.add_argument("--scenario", default="translate")
     parser.add_argument("--topic", default="Generative AI")
     parser.add_argument("--tasks", type=int, default=None)
@@ -311,11 +328,14 @@ def main():
     agents = scenario["agents"]
 
     # Add orchestrator to agent list for tracking
-    agents.insert(0, {
-        "name": "orchestrator",
-        "emoji": "🧠",
-        "color": "1;36",
-    })
+    agents.insert(
+        0,
+        {
+            "name": "orchestrator",
+            "emoji": "🧠",
+            "color": "1;36",
+        },
+    )
     agent_names = [a["name"] for a in agents]
 
     console = Console()
@@ -334,14 +354,11 @@ def main():
 
             # Exit once all agents are done for EXIT_DELAY seconds
             if metrics:
-                all_done = (
-                    all(
-                        metrics.get(name, {}).get("status") == "done"
-                        for name in agent_names
-                        if name in metrics
-                    )
-                    and len(metrics) == len(agent_names)
-                )
+                all_done = all(
+                    metrics.get(name, {}).get("status") == "done"
+                    for name in agent_names
+                    if name in metrics
+                ) and len(metrics) == len(agent_names)
                 if all_done:
                     if all_done_since is None:
                         all_done_since = now
@@ -360,8 +377,6 @@ def main():
     total_time = max(m.get("elapsed_s", 0) for m in metrics.values()) if metrics else 0
     sum_tps = sum(m.get("tps", 0) for m in metrics.values())
 
-
-
     summary_lines = [
         "[bold green]✅ All agents complete![/]\n",
         f"  [bright_white]Total tokens generated:[/] [bold]{total_tokens}[/]",
@@ -374,12 +389,14 @@ def main():
             f"  [bright_white]Effective throughput:[/] [bold bright_cyan]{effective:.1f} t/s[/]"
         )
 
-    console.print(Panel(
-        "\n".join(summary_lines),
-        title="[bold cyan]⚡ Final Summary[/]",
-        border_style="cyan",
-        padding=(1, 2),
-    ))
+    console.print(
+        Panel(
+            "\n".join(summary_lines),
+            title="[bold cyan]⚡ Final Summary[/]",
+            border_style="cyan",
+            padding=(1, 2),
+        )
+    )
 
     input("\nPress Enter to close...")
 

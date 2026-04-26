@@ -28,48 +28,146 @@ import html
 # ─── Palettes ───────────────────────────────────────────────
 
 _COLORS = [
-    "1;35", "1;36", "1;33", "1;32", "1;34", "0;36", "0;35", "0;33", "0;32", "0;34",
-    "1;31", "0;31", "1;37", "0;37", "1;35", "1;36", "1;33", "1;32", "1;34", "0;36",
+    "1;35",
+    "1;36",
+    "1;33",
+    "1;32",
+    "1;34",
+    "0;36",
+    "0;35",
+    "0;33",
+    "0;32",
+    "0;34",
+    "1;31",
+    "0;31",
+    "1;37",
+    "0;37",
+    "1;35",
+    "1;36",
+    "1;33",
+    "1;32",
+    "1;34",
+    "0;36",
 ]
 
 _LANG_EMOJIS = [
-    "🇫🇷", "🇪🇸", "🇩🇪", "🇯🇵", "🇨🇳", "🇰🇷", "🇸🇦", "🇮🇳", "🇧🇷", "🇷🇺",
-    "🇮🇹", "🇹🇷", "🇻🇳", "🇹🇭", "🇳🇱", "🇵🇱", "🇸🇪", "🇬🇷", "🇮🇩", "🇺🇦",
+    "🇫🇷",
+    "🇪🇸",
+    "🇩🇪",
+    "🇯🇵",
+    "🇨🇳",
+    "🇰🇷",
+    "🇸🇦",
+    "🇮🇳",
+    "🇧🇷",
+    "🇷🇺",
+    "🇮🇹",
+    "🇹🇷",
+    "🇻🇳",
+    "🇹🇭",
+    "🇳🇱",
+    "🇵🇱",
+    "🇸🇪",
+    "🇬🇷",
+    "🇮🇩",
+    "🇺🇦",
 ]
 
 _LANG_NAMES = [
-    "french", "spanish", "german", "japanese", "chinese", "korean",
-    "arabic", "hindi", "portuguese", "russian", "italian", "turkish",
-    "vietnamese", "thai", "dutch", "polish", "swedish", "greek",
-    "indonesian", "ukrainian",
+    "french",
+    "spanish",
+    "german",
+    "japanese",
+    "chinese",
+    "korean",
+    "arabic",
+    "hindi",
+    "portuguese",
+    "russian",
+    "italian",
+    "turkish",
+    "vietnamese",
+    "thai",
+    "dutch",
+    "polish",
+    "swedish",
+    "greek",
+    "indonesian",
+    "ukrainian",
 ]
 
 _SVG_STYLES = [
-    "minimalist", "cyberpunk", "watercolor", "pixel art",
-    "abstract", "geometric", "neon", "vintage",
-    "pop art", "isometric", "steampunk", "monochrome",
-    "low poly", "surreal", "line art", "flat design",
-    "3D render", "anime", "cubism", "synthwave",
+    "minimalist",
+    "cyberpunk",
+    "watercolor",
+    "pixel art",
+    "abstract",
+    "geometric",
+    "neon",
+    "vintage",
+    "pop art",
+    "isometric",
+    "steampunk",
+    "monochrome",
+    "low poly",
+    "surreal",
+    "line art",
+    "flat design",
+    "3D render",
+    "anime",
+    "cubism",
+    "synthwave",
 ]
 
 _CODE_LANGS = [
-    "python", "javascript", "rust", "go", "c", "java", "ruby", "swift",
-    "kotlin", "typescript", "php", "scala", "haskell", "elixir",
-    "lua", "perl", "r", "julia", "dart", "zig",
+    "python",
+    "javascript",
+    "rust",
+    "go",
+    "c",
+    "java",
+    "ruby",
+    "swift",
+    "kotlin",
+    "typescript",
+    "php",
+    "scala",
+    "haskell",
+    "elixir",
+    "lua",
+    "perl",
+    "r",
+    "julia",
+    "dart",
+    "zig",
 ]
 
 _CODE_EMOJIS = [
-    "🐍", "📜", "🦀", "🐹", "⚙️", "☕", "💎", "🍎",
-    "🟣", "🔷", "🐘", "🔴", "λ", "💧",
-    "🌙", "🐪", "📊", "🔮", "🎯", "⚡",
+    "🐍",
+    "📜",
+    "🦀",
+    "🐹",
+    "⚙️",
+    "☕",
+    "💎",
+    "🍎",
+    "🟣",
+    "🔷",
+    "🐘",
+    "🔴",
+    "λ",
+    "💧",
+    "🌙",
+    "🐪",
+    "📊",
+    "🔮",
+    "🎯",
+    "⚡",
 ]
 
 
-
-
-
-
 # ─── Agent Factories ───────────────────────────────────────
+
 
 def make_translate_agents(n: int = 10) -> list[dict]:
     return [
@@ -119,15 +217,11 @@ def make_ascii_agents(n: int = 10) -> list[dict]:
             "emoji": "👾",
             "color": _COLORS[i % len(_COLORS)],
             "direct_instruction": (
-                f"Create ASCII art of {{topic}}. "
-                f"Output ASCII art only."
+                f"Create ASCII art of {{topic}}. " f"Output ASCII art only."
             ),
         }
         for i in range(n)
     ]
-
-
-
 
 
 # ─── System Prompts ─────────────────────────────────────────
@@ -151,8 +245,6 @@ ASCII_SYSTEM = (
     "You are an ASCII artist. Output ONLY raw ASCII art. "
     "No explanations, no markdown fences, no text before or after the art."
 )
-
-
 
 
 # ─── Planning Prompts ───────────────────────────────────────
@@ -216,11 +308,10 @@ ASCII_TEMPLATE = (
 )
 
 
-
-
 # ─── Card Renderers ─────────────────────────────────────────
 # Each render_card(agent, result) returns ONLY the inner HTML.
 # The card wrapper (div, border, hover, padding) is handled by build_page().
+
 
 def translate_card(agent, result, task=None):
     name = agent["name"]
@@ -230,7 +321,7 @@ def translate_card(agent, result, task=None):
         f'<div class="flex items-center gap-2 mb-3">\n'
         f'    <span class="text-xl">{emoji}</span>\n'
         f'    <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">{name}</span>\n'
-        f'</div>\n'
+        f"</div>\n"
         f'<div class="text-sm text-gray-700 leading-relaxed">{text}</div>'
     )
 
@@ -264,12 +355,12 @@ def code_card(agent, result, task=None):
             lines = lines[:-1]
         code = "\n".join(lines)
     escaped = html.escape(code)
-    lang_class = f'language-{name}' if name in _CODE_LANGS else ''
+    lang_class = f"language-{name}" if name in _CODE_LANGS else ""
     return (
         f'<div class="flex items-center gap-2 px-1 pb-3 mb-3 border-b border-gray-200">\n'
         f'    <span class="text-lg">{emoji}</span>\n'
         f'    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wider">{name}</span>\n'
-        f'</div>\n'
+        f"</div>\n"
         f'<pre class="m-0 text-xs leading-relaxed overflow-auto"><code class="{lang_class}" style="padding: 0; background: transparent;">{escaped}</code></pre>'
     )
 
@@ -290,15 +381,13 @@ def ascii_card(agent, result, task=None):
         f'<div class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">{name}</div>\n'
         f'<div class="w-full bg-gray-900 rounded-lg p-4 flex items-center justify-center min-h-[180px] overflow-auto">\n'
         f'    <pre class="text-base font-mono text-green-400 leading-tight" style="text-shadow: 0 0 5px rgba(74, 222, 128, 0.5);">{escaped}</pre>\n'
-        f'</div>\n'
+        f"</div>\n"
         f'<div class="text-sm font-semibold text-gray-500 mt-3 pt-3 border-t border-gray-200 w-full text-center">{label}</div>'
     )
 
 
-
-
-
 # ─── Page Builder ───────────────────────────────────────────
+
 
 def build_page(topic, scenario, results, tasks=None):
     """Build the full HTML page. Wraps each card automatically."""
@@ -324,8 +413,8 @@ def build_page(topic, scenario, results, tasks=None):
         cards_html.append(
             f'            <div class="bg-gray-50 rounded-lg p-4 border border-gray-200 '
             f'hover:shadow-md transition-all">\n'
-            f'{inner}\n'
-            f'            </div>'
+            f"{inner}\n"
+            f"            </div>"
         )
 
     return f"""<!DOCTYPE html>
@@ -404,7 +493,6 @@ SCENARIOS = {
         "title": "ASCII Art Gallery",
         "default_n": 10,
     },
-
 }
 
 

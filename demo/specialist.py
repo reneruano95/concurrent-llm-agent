@@ -14,6 +14,7 @@ import os
 import time
 
 from utils import COMMS_DIR, RESET, DIM, stream_llm
+from runlog import read_sentinel
 
 POLL_INTERVAL = 0.5
 
@@ -39,7 +40,16 @@ def main():
     parser.add_argument("--name", required=True)
     parser.add_argument("--emoji", default="🤖")
     parser.add_argument("--color", default="1;37")
-    parser.add_argument("--api-url", default="http://127.0.0.1:8080/v1/chat/completions")
+    parser.add_argument(
+        "--api-url", default="http://127.0.0.1:8080/v1/chat/completions"
+    )
+    parser.add_argument(
+        "--run-dir",
+        default=None,
+        help="Run folder to record this specialist's call into. "
+        "If omitted, falls back to AGENT_RUN_DIR env var "
+        "or the sentinel written by the orchestrator.",
+    )
     args = parser.parse_args()
 
     color = args.color
@@ -69,17 +79,27 @@ def main():
     # waste the token budget and frequently truncate before any content is
     # emitted (see Qwen3, DeepSeek-R1). Disable thinking by default; the
     # streamer will auto-retry with thinking off if a model ignores the flag.
+    # Resolve run_dir: explicit flag > env var > sentinel file written by orchestrator.
+    run_dir = args.run_dir or read_sentinel(COMMS_DIR)
+
     result = stream_llm(
-        args.api_url, messages,
-        agent_name=name, color=color,
+        args.api_url,
+        messages,
+        agent_name=name,
+        color=color,
         max_tokens=8000,
         enable_thinking=False,
+        run_dir=run_dir,
     )
 
     # Write result
     result_path = os.path.join(COMMS_DIR, f"result_{name}.json")
     with open(result_path, "w", encoding="utf-8") as f:
-        json.dump({"task_id": task.get("task_id", ""), "result": result}, f, ensure_ascii=False)
+        json.dump(
+            {"task_id": task.get("task_id", ""), "result": result},
+            f,
+            ensure_ascii=False,
+        )
 
     print(f"\n\n\033[{color}m{'─' * 45}{RESET}")
     print(f"\033[{color}m  ✅ {args.emoji}  {display} — Done!{RESET}")

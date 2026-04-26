@@ -18,14 +18,29 @@ import time
 
 from scenarios import get_scenario
 from utils import (
-    COMMS_DIR, BUILD_DIR, RESET, DIM, BOLD, CYAN, GREEN, YELLOW, WHITE,
+    COMMS_DIR,
+    BUILD_DIR,
+    RESET,
+    DIM,
+    BOLD,
+    CYAN,
+    GREEN,
+    YELLOW,
+    WHITE,
     stream_llm,
+)
+from runlog import (
+    new_run_dir,
+    write_sentinel,
+    write_run_meta,
+    save_page,
 )
 
 POLL_INTERVAL = 0.5
 
 
 # ─── Step 1: Plan ───────────────────────────────────────────
+
 
 def _direct_tasks(agents: list[dict], topic: str) -> list[dict]:
     """Strategy 'direct': use each agent's own direct_instruction. No LLM call."""
@@ -56,7 +71,7 @@ def _extract_json_array(raw: str) -> str:
     s = raw.find("[")
     e = raw.rfind("]")
     if s != -1 and e != -1 and e > s:
-        return raw[s:e + 1]
+        return raw[s : e + 1]
     return raw
 
 
@@ -74,7 +89,9 @@ def _validate_subjects(parsed, n: int) -> str | None:
     return None
 
 
-def _decompose_tasks(api_url: str, scenario: dict, topic: str) -> list[dict]:
+def _decompose_tasks(
+    api_url: str, scenario: dict, topic: str, run_dir: str | None = None
+) -> list[dict]:
     """Strategy 'decompose': LLM produces N subjects; Python templates the instruction."""
     agents = scenario["agents"]
     n = len(agents)
@@ -93,9 +110,13 @@ def _decompose_tasks(api_url: str, scenario: dict, topic: str) -> list[dict]:
 
     for attempt in range(2):  # initial + one repair
         raw = stream_llm(
-            api_url, messages, agent_name="orchestrator",
-            color="1;36", max_tokens=plan_tokens,
+            api_url,
+            messages,
+            agent_name="planner",
+            color="1;36",
+            max_tokens=plan_tokens,
             json_schema=decomp["schema"],
+            run_dir=run_dir,
         )
         print("\n")
         try:
@@ -117,15 +138,20 @@ def _decompose_tasks(api_url: str, scenario: dict, topic: str) -> list[dict]:
             {"role": "system", "content": decomp["system"]},
             {"role": "user", "content": user_prompt},
             {"role": "assistant", "content": raw},
-            {"role": "user", "content": (
-                f"Your previous output was invalid: {last_error} "
-                f"Output ONLY a JSON array of exactly {n} unique subject strings. "
-                "Nothing else."
-            )},
+            {
+                "role": "user",
+                "content": (
+                    f"Your previous output was invalid: {last_error} "
+                    f"Output ONLY a JSON array of exactly {n} unique subject strings. "
+                    "Nothing else."
+                ),
+            },
         ]
 
     if subjects is None:
-        print(f"{YELLOW}⚠️  Planner failed twice — falling back to direct_instruction.{RESET}\n")
+        print(
+            f"{YELLOW}⚠️  Planner failed twice — falling back to direct_instruction.{RESET}\n"
+        )
         return _direct_tasks(agents, topic)
 
     # Bind subjects to agents and template the final instruction.
@@ -135,15 +161,19 @@ def _decompose_tasks(api_url: str, scenario: dict, topic: str) -> list[dict]:
             instr = template.format(topic=topic, subject=subject, **agent)
         except (KeyError, IndexError):
             instr = template.replace("{topic}", topic).replace("{subject}", subject)
-        tasks.append({
-            "name": agent["name"],
-            "instruction": instr,
-            "label": subject,
-        })
+        tasks.append(
+            {
+                "name": agent["name"],
+                "instruction": instr,
+                "label": subject,
+            }
+        )
     return tasks
 
 
-def plan_tasks(api_url: str, scenario: dict, topic: str) -> list[dict]:
+def plan_tasks(
+    api_url: str, scenario: dict, topic: str, run_dir: str | None = None
+) -> list[dict]:
     """Dispatch to the right planning strategy for this scenario."""
     print(f"\n{CYAN}{'━' * 60}{RESET}")
     print(f"{CYAN}  🧠 STEP 1: PLANNING{RESET}")
@@ -156,10 +186,14 @@ def plan_tasks(api_url: str, scenario: dict, topic: str) -> list[dict]:
         print(f"{DIM}Strategy: direct (no LLM planning needed){RESET}\n")
         tasks = _direct_tasks(agents, topic)
     elif strategy == "decompose":
-        print(f"{DIM}Strategy: decompose (LLM → subjects, Python → instructions){RESET}\n")
-        tasks = _decompose_tasks(api_url, scenario, topic)
+        print(
+            f"{DIM}Strategy: decompose (LLM → subjects, Python → instructions){RESET}\n"
+        )
+        tasks = _decompose_tasks(api_url, scenario, topic, run_dir=run_dir)
     else:
-        print(f"{YELLOW}⚠️  Unknown strategy '{strategy}' — falling back to direct.{RESET}\n")
+        print(
+            f"{YELLOW}⚠️  Unknown strategy '{strategy}' — falling back to direct.{RESET}\n"
+        )
         tasks = _direct_tasks(agents, topic)
 
     print(f"{GREEN}✅ Plan: {len(tasks)} tasks{RESET}\n")
@@ -175,6 +209,7 @@ def plan_tasks(api_url: str, scenario: dict, topic: str) -> list[dict]:
 
 # ─── Step 2: Dispatch ───────────────────────────────────────
 
+
 def dispatch(tasks: list[dict], agents: list[dict], system_prompt: str = ""):
     """Write task files so specialist agents can pick them up."""
     print(f"{CYAN}{'━' * 60}{RESET}")
@@ -187,11 +222,14 @@ def dispatch(tasks: list[dict], agents: list[dict], system_prompt: str = ""):
         name = task["name"]
         path = os.path.join(COMMS_DIR, f"task_{name}.json")
         with open(path, "w", encoding="utf-8") as f:
-            json.dump({
-                "task_id": task_id,
-                "instruction": task["instruction"],
-                "system_prompt": system_prompt,
-            }, f)
+            json.dump(
+                {
+                    "task_id": task_id,
+                    "instruction": task["instruction"],
+                    "system_prompt": system_prompt,
+                },
+                f,
+            )
 
         agent = next((a for a in agents if a["name"] == name), None)
         emoji = agent["emoji"] if agent else "📦"
@@ -201,6 +239,7 @@ def dispatch(tasks: list[dict], agents: list[dict], system_prompt: str = ""):
 
 
 # ─── Step 3: Collect ────────────────────────────────────────
+
 
 def collect(tasks: list[dict], agents: list[dict]) -> dict[str, str]:
     """Wait for all agents to write their result files."""
@@ -233,19 +272,29 @@ def collect(tasks: list[dict], agents: list[dict]) -> dict[str, str]:
 
 # ─── Step 4: Assemble ───────────────────────────────────────
 
-def assemble(scenario: dict, topic: str, results: dict, tasks: list = None):
+
+def assemble(
+    scenario: dict,
+    topic: str,
+    results: dict,
+    tasks: list = None,
+    run_dir: str | None = None,
+):
     """Build the final HTML page from all agent results."""
     print(f"{CYAN}{'━' * 60}{RESET}")
     print(f"{CYAN}  🔧 STEP 3: ASSEMBLING{RESET}")
     print(f"{CYAN}{'━' * 60}{RESET}\n")
 
     from scenarios import build_page
+
     page_html = build_page(topic, scenario, results, tasks=tasks)
 
     os.makedirs(BUILD_DIR, exist_ok=True)
     path = os.path.join(BUILD_DIR, "index.html")
     with open(path, "w", encoding="utf-8") as f:
         f.write(page_html)
+
+    save_page(run_dir, page_html)
 
     print(f"  {GREEN}✅ Assembled: index.html{RESET}")
 
@@ -265,13 +314,28 @@ def assemble(scenario: dict, topic: str, results: dict, tasks: list = None):
 
 # ─── Main ────────────────────────────────────────────────────
 
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario", default="translate")
-    parser.add_argument("--topic", default="Gemma is Google's most capable open AI model")
-    parser.add_argument("--tasks", type=int, default=None,
-                        help="Number of tasks/LLMs (default: scenario default)")
-    parser.add_argument("--api-url", default="http://127.0.0.1:8080/v1/chat/completions")
+    parser.add_argument(
+        "--topic", default="Gemma is Google's most capable open AI model"
+    )
+    parser.add_argument(
+        "--tasks",
+        type=int,
+        default=None,
+        help="Number of tasks/LLMs (default: scenario default)",
+    )
+    parser.add_argument(
+        "--api-url", default="http://127.0.0.1:8080/v1/chat/completions"
+    )
+    parser.add_argument(
+        "--run-dir",
+        default=None,
+        help="Optional pre-existing run folder (for shared sessions). "
+        "If omitted, a new timestamped folder is created.",
+    )
     args = parser.parse_args()
 
     scenario = get_scenario(args.scenario, n_agents=args.tasks)
@@ -292,10 +356,30 @@ def main():
         else:
             os.makedirs(d)
 
-    tasks = plan_tasks(args.api_url, scenario, args.topic)
+    # Set up the run folder for persistence (run logs + final HTML).
+    run_dir = args.run_dir or new_run_dir(args.scenario, args.topic)
+    write_sentinel(COMMS_DIR, run_dir)
+    print(f"{DIM}  Run folder: {run_dir}{RESET}\n")
+
+    run_started = time.time()
+    tasks = plan_tasks(args.api_url, scenario, args.topic, run_dir=run_dir)
     dispatch(tasks, agents, system_prompt=scenario.get("system_prompt", ""))
     results = collect(tasks, agents)
-    assemble(scenario, args.topic, results, tasks=tasks)
+    assemble(scenario, args.topic, results, tasks=tasks, run_dir=run_dir)
+
+    write_run_meta(
+        run_dir,
+        {
+            "scenario": args.scenario,
+            "topic": args.topic,
+            "n_agents": len(agents),
+            "agents": [a["name"] for a in agents],
+            "planning_strategy": scenario.get("planning_strategy", "direct"),
+            "api_url": args.api_url,
+            "total_elapsed_s": round(time.time() - run_started, 3),
+            "tasks": tasks,
+        },
+    )
 
     print(f"\n{CYAN}{'━' * 60}{RESET}")
     print(f"{CYAN}  ✅ COMPLETE{RESET}")

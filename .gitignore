@@ -110,3 +110,5 @@ Gemma/personal-code-assistant/gemma-web-service/.env
 .agent_comms/metrics_*.json
 .agent_comms/
 website_build/
+.runs/
+demo/.runs/

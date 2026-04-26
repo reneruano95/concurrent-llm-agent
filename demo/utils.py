@@ -12,6 +12,8 @@ import time
 
 from openai import OpenAI
 
+from runlog import log_call as _runlog_log_call
+
 # ─── Shared Paths ───────────────────────────────────────────
 
 COMMS_DIR = os.path.join(os.path.dirname(__file__), ".agent_comms")
@@ -30,7 +32,10 @@ WHITE = "\033[1;37m"
 
 # ─── Metrics ────────────────────────────────────────────────
 
-def write_metrics(name: str, status: str, tokens: int, elapsed: float, tps: float = None):
+
+def write_metrics(
+    name: str, status: str, tokens: int, elapsed: float, tps: float = None
+):
     """Write metrics to .agent_comms/metrics_{name}.json atomically."""
     if tps is None:
         tps = tokens / elapsed if elapsed > 0 else 0.0
@@ -62,6 +67,7 @@ def write_metrics(name: str, status: str, tokens: int, elapsed: float, tps: floa
 
 # ─── LLM Streaming ─────────────────────────────────────────
 
+
 def stream_llm(
     api_url: str,
     messages: list[dict],
@@ -70,6 +76,7 @@ def stream_llm(
     max_tokens: int = 8000,
     json_schema: dict | None = None,
     enable_thinking: bool = True,
+    run_dir: str | None = None,
 ) -> str:
     """Stream an LLM response, update metrics, and print tokens in color.
 
@@ -109,10 +116,12 @@ def stream_llm(
     # Build a list of response_format candidates to try, strongest first.
     rf_candidates: list[dict | None] = []
     if json_schema is not None:
-        rf_candidates.append({
-            "type": "json_schema",
-            "json_schema": {"name": "plan", "schema": json_schema, "strict": True},
-        })
+        rf_candidates.append(
+            {
+                "type": "json_schema",
+                "json_schema": {"name": "plan", "schema": json_schema, "strict": True},
+            }
+        )
         rf_candidates.append({"type": "json_object"})
     rf_candidates.append(None)  # always-available unconstrained fallback
 
@@ -138,6 +147,7 @@ def stream_llm(
     chunk_count = 0
     server_tokens = None  # Will be set from usage if available
     finish_reason: str | None = None
+    error_msg: str | None = None
     start_t = time.time()
 
     try:
@@ -197,6 +207,7 @@ def stream_llm(
                     last_poll_t = now
 
     except Exception as e:
+        error_msg = str(e)
         sys.stdout.write(f"\n\033[31m[ERROR] {e}\033[0m\n")
 
     total_elapsed = time.time() - start_t
@@ -205,13 +216,23 @@ def stream_llm(
     final_tps = final_tokens / total_elapsed if total_elapsed > 0 else 0.0
     write_metrics(agent_name, "done", final_tokens, total_elapsed, final_tps)
 
+    # Persist this call to the run log (if a run_dir was provided).
+    _runlog_log_call(
+        run_dir,
+        agent_name,
+        request={"messages": effective_messages, "max_tokens": max_tokens},
+        response=full,
+        tokens=final_tokens,
+        elapsed_s=total_elapsed,
+        finish_reason=finish_reason,
+        enable_thinking=enable_thinking,
+        response_format=({"type": "json_schema"} if json_schema else None),
+        error=error_msg,
+    )
+
     # Auto-recover from "model thought itself out of budget": truncated by
     # length with no content emitted. Retry once with thinking disabled.
-    if (
-        enable_thinking
-        and finish_reason == "length"
-        and len(full.strip()) < 10
-    ):
+    if enable_thinking and finish_reason == "length" and len(full.strip()) < 10:
         sys.stdout.write(
             f"\n\033[33m[{agent_name}] Output truncated by reasoning. "
             f"Retrying with thinking disabled...\033[0m\n"
@@ -224,6 +245,7 @@ def stream_llm(
             max_tokens=max_tokens,
             json_schema=json_schema,
             enable_thinking=False,
+            run_dir=run_dir,
         )
 
     return full
