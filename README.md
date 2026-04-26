@@ -6,9 +6,12 @@ These Gemma 4 instances can be run across several scenarios, such as generating 
 
 ## Prerequisites
 
-- **macOS** (uses AppleScript for Terminal window management)
+- **macOS** (uses AppleScript for Terminal window management) **or Windows** (uses [Windows Terminal](https://aka.ms/terminal) `wt.exe`, with a fallback to separate PowerShell windows)
 - **[uv](https://github.com/astral-sh/uv)** for package management
 - **llama-server** from [llama.cpp](https://github.com/ggml-org/llama.cpp) running on `localhost:8080`
+
+> [!NOTE]
+> On Windows, install [Windows Terminal](https://aka.ms/terminal) for the tabbed grid view. Without it, `run.ps1` falls back to opening one PowerShell window per agent.
 
 ## Quick Start
 
@@ -32,6 +35,8 @@ llama-server -m gemma-4-26B-A4B-it-UD-Q4_K_M.gguf -c 70000 -np 10 --metrics --re
 
 **3. Run a demo**
 
+On **macOS / Linux** use `run.sh`:
+
 ```bash
 # Generate SVGs
 bash run.sh --scenario svg --topic "Technology and AI" --tasks 10
@@ -46,7 +51,32 @@ bash run.sh --scenario code --topic "FizzBuzz" --tasks 10
 bash run.sh --scenario ascii --topic "animals" --tasks 10
 ```
 
-This opens macOS Terminal windows in a grid: a dashboard on top, the orchestrator, and N Gemma 4 instances below.
+On **Windows** use `run.ps1` from PowerShell (parameters are named, PascalCase):
+
+```powershell
+# Generate SVGs
+.\run.ps1 -Scenario svg -Topic "Technology and AI" -Tasks 10
+
+# Translate text
+.\run.ps1 -Scenario translate -Topic "Gemma 4 is a family of models released by Google DeepMind." -Tasks 10
+
+# Code Gallery
+.\run.ps1 -Scenario code -Topic "FizzBuzz" -Tasks 10
+
+# ASCII Art
+.\run.ps1 -Scenario ascii -Topic "animals" -Tasks 10
+
+# Custom llama-server port
+.\run.ps1 -Scenario svg -Topic "Technology and AI" -Tasks 4 -Port 1234
+```
+
+This opens Terminal windows in a grid: a dashboard on top, the orchestrator, and N Gemma 4 instances below — macOS Terminal on macOS, Windows Terminal tabs/panes on Windows.
+
+> [!TIP]
+> If PowerShell blocks the script with an execution policy error, run it once per session with:
+> ```powershell
+> Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+> ```
 
 ## Adding a New Scenario
 
@@ -87,5 +117,11 @@ SCENARIOS["my_scenario"] = {
 Then run:
 
 ```bash
+# macOS / Linux
 bash run.sh --scenario my_scenario --topic "My Topic"
+```
+
+```powershell
+# Windows
+.\run.ps1 -Scenario my_scenario -Topic "My Topic"
 ```
